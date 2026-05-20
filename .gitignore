@@ -1,0 +1,72 @@
+# Dependency folders
+node_modules/
+
+# Frontend build output
+dist/
+dist-ssr/
+
+# Tauri and Rust build output
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Packaged desktop artifacts
+*.app/
+*.dmg
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# Local runtime data and media
+*.sqlite
+*.sqlite3
+*.db
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.lrc
+*.srt
+*.vtt
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+*.local
+*.pem
+*.key
+*.p8
+*.p12
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.cursor/
+.claude/
+.codex/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local helper binaries. Keep the directory README, but do not commit binary
+# sidecars as normal Git blobs. Use Git LFS or an external artifact instead.
+src-tauri/binaries/*
+!src-tauri/binaries/README.md
