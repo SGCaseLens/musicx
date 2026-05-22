@@ -200,6 +200,7 @@ img {
 .source-filter__button,
 .context-tab,
 .mode-chip,
+.tiny-button,
 .track-row__action,
 .transport-button {
   transition:
@@ -236,12 +237,26 @@ img {
   box-shadow: 0 14px 32px rgba(18, 25, 42, 0.08);
 }
 
+.tiny-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  color: #203650;
+  font-size: var(--font-size-small);
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .primary-button:hover,
 .secondary-button:hover,
 .locale-switch__button:hover,
 .source-filter__button:hover,
 .context-tab:hover,
 .mode-chip:hover,
+.tiny-button:hover,
 .track-row__action:hover,
 .transport-button:hover {
   transform: translateY(-1px);
@@ -249,6 +264,7 @@ img {
 
 .primary-button:disabled,
 .secondary-button:disabled,
+.tiny-button:disabled,
 .transport-button:disabled,
 .track-row__action:disabled {
   opacity: 0.6;
@@ -1484,7 +1500,23 @@ img {
 .lyrics-card__summary {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.lyrics-offset-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lyrics-offset-controls__buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .context-message {
@@ -1610,6 +1642,12 @@ img {
 
 .download-monitor__message {
   margin: 12px 0 0;
+}
+
+.download-monitor__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .context-footer {

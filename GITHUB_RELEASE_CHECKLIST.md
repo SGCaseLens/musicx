@@ -54,7 +54,7 @@ pnpm tauri build
 Expected local release artifacts:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.1.3_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.1.4_aarch64.dmg`
 
 Release artifacts are build outputs and should not be committed to Git.
 
@@ -92,14 +92,15 @@ Recommended settings:
 ## Release Notes Template
 
 ```markdown
-## musicx 0.1.3
+## musicx 0.1.4
 
 ### Highlights
 
 - Local library import and managed storage.
 - YouTube search and MP3 download.
-- Synced lyrics from sidecars, subtitles, metadata, and LRCLIB.
+- Synced lyrics from sidecars, subtitles, metadata, and LRCLIB, with persisted lyric offset tuning.
 - Full playback controls, shortcuts, shuffle/repeat, and macOS volume integration.
+- Music-reactive Signal meter and recoverable download retry UX.
 - Friendly macOS-focused listening stage UI.
 
 ### Known Limitations

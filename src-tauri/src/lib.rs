@@ -14,7 +14,7 @@ use crate::errors::{AppResult, ErrorPayload};
 use crate::library::{
     create_youtube_track, delete_track_record, get_track_by_id, get_track_by_youtube_video_id,
     import_tracks, list_tracks as list_tracks_impl, open_connection, save_lyrics,
-    YoutubeTrackInput,
+    update_lyrics_offset as update_lyrics_offset_impl, YoutubeTrackInput,
 };
 use crate::lyrics::{build_lyrics_query, guess_language_from_lines, search_remote_lyrics};
 use crate::paths::ensure_app_dirs;
@@ -272,6 +272,17 @@ async fn search_lyrics_for_track(app: AppHandle, track_id: String) -> AppResult<
 }
 
 #[tauri::command]
+async fn update_lyrics_offset(
+    app: AppHandle,
+    track_id: String,
+    offset_ms: i64,
+) -> AppResult<Option<Track>> {
+    let app_paths = ensure_app_dirs(&app).map_err(ErrorPayload::from)?;
+    let connection = open_connection(&app_paths.db).map_err(ErrorPayload::from)?;
+    update_lyrics_offset_impl(&connection, &track_id, offset_ms).map_err(ErrorPayload::from)
+}
+
+#[tauri::command]
 async fn search_youtube_videos(
     app: AppHandle,
     query: String,
@@ -410,6 +421,7 @@ pub fn run() {
             import_local_tracks,
             delete_track,
             search_lyrics_for_track,
+            update_lyrics_offset,
             search_youtube_videos,
             download_youtube_audio
         ]);

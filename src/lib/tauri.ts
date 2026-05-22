@@ -100,6 +100,9 @@ function normalizeTrack(input: unknown, index: number): Track | null {
       : "unknown";
 
   const lyrics = normalizeLyrics(input.lyrics);
+  const lyricOffsetMs = isRecord(input.lyrics)
+    ? readNumber(input.lyrics, ["globalOffsetMs", "global_offset_ms"])
+    : readNumber(input, ["lyricOffsetMs", "lyric_offset_ms"]);
   const lyricsSource = (() => {
     if (!isRecord(input.lyrics)) {
       return readString(input, ["lyricSource", "lyric_source"]);
@@ -127,6 +130,7 @@ function normalizeTrack(input: unknown, index: number): Track | null {
     artworkUrl: readString(input, ["artworkUrl", "artwork_url", "thumbnailUrl", "thumbnail_url"]),
     lyrics,
     lyricSource: lyricsSource,
+    lyricOffsetMs,
     importedAt: readString(input, ["createdAt", "created_at", "importedAt", "imported_at"]),
     youtubeId: readString(input, ["youtubeVideoId", "youtube_video_id", "youtubeId", "youtube_id"]),
     source,
@@ -460,6 +464,21 @@ export async function searchLyricsForTrack(track: Track): Promise<Track["lyrics"
   });
   const nextTrack = normalizeTrack(response, 0);
   return nextTrack?.lyrics ?? [];
+}
+
+export async function updateTrackLyricsOffset(
+  trackId: string,
+  offsetMs: number,
+): Promise<Track | null> {
+  if (!isTauri()) {
+    return null;
+  }
+
+  const response = await invokeCommand("update_lyrics_offset", {
+    trackId,
+    offsetMs,
+  });
+  return normalizeTrack(response, 0);
 }
 
 export async function searchYoutubeVideos(query: string): Promise<YouTubeVideo[]> {

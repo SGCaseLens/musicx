@@ -37,6 +37,7 @@ export interface Track {
   language?: string;
   lyrics?: LyricsLine[];
   lyricSource?: string;
+  lyricOffsetMs?: number;
   importedAt?: string;
   youtubeId?: string;
   source: "local" | "youtube" | "demo" | "unknown";

@@ -6,7 +6,7 @@ The current app identity is:
 
 - Product name: `musicx`
 - Bundle identifier: `com.musicx`
-- Version: `0.1.3`
+- Version: `0.1.4`
 - Primary target: macOS arm64
 - Stack: Tauri 2, React 19, TypeScript, Vite, Rust
 
@@ -15,7 +15,7 @@ The current app identity is:
 - Import local audio files into a managed library.
 - Search YouTube videos and download audio as local MP3 files.
 - Load synced lyrics from local sidecars, embedded metadata, YouTube subtitles, or LRCLIB.
-- Highlight and auto-scroll lyrics while the song plays.
+- Highlight and auto-scroll lyrics while the song plays, with persisted lyric offset controls for fine alignment.
 - Play, pause, scrub, seek, adjust volume, delete tracks, shuffle, and repeat.
 - Control macOS system output volume from the in-app volume slider.
 - Show per-track artwork in the collection when artwork is available.
@@ -98,7 +98,7 @@ pnpm tauri build
 Observed release artifacts:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.1.3_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.1.4_aarch64.dmg`
 
 The current local bundle is ad-hoc signed and not notarized.
 
@@ -120,7 +120,13 @@ Run only the Rust tests:
 pnpm test:rust
 ```
 
-There are Rust unit tests for YouTube URL handling, search parsing, subtitle parsing, lyrics repair, system volume conversion, delete behavior, demo asset creation, and temporary data migration. There is no dedicated frontend test suite or E2E suite in the current project.
+Run only the frontend UI tests:
+
+```bash
+pnpm test:ui
+```
+
+There are Rust unit tests for YouTube URL handling, search parsing, subtitle parsing, lyrics repair, lyric offset persistence, system volume conversion, delete behavior, demo asset creation, and temporary data migration. Vitest UI tests cover lyric offset controls, active lyric alignment, WebVTT parsing, and download retry behavior.
 
 ## Using musicx
 
@@ -159,6 +165,7 @@ Click `Download MP3` to convert the selected video to a local MP3. musicx:
 - Converts subtitles into synced lyrics.
 - Falls back to LRCLIB when subtitles are missing or too sparse.
 - Emits progress states for queued, preparing, downloading, converting, saving, done, and error.
+- Retries recoverable download failures such as rate limits, timeouts, and transient network errors before surfacing a retry action.
 
 Double-clicking a YouTube result, or pressing `Enter`/`Space` on a focused result, downloads the result, adds it to the library, and starts playback when the download completes.
 
@@ -176,7 +183,7 @@ Lyrics can come from:
 - LRCLIB exact or search matches.
 - Built-in demo lyrics.
 
-Use `Find lyrics` to retry lyric lookup for the selected track.
+Use `Find lyrics` to retry lyric lookup for the selected track. Use the lyric offset controls to move lyrics earlier or later in 0.5 second steps; the offset is saved with the track.
 
 ### Playback
 

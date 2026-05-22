@@ -196,6 +196,29 @@ pub fn save_lyrics(connection: &Connection, track_id: &str, lyrics: &LyricsDocum
     Ok(())
 }
 
+pub fn update_lyrics_offset(
+    connection: &Connection,
+    track_id: &str,
+    offset_ms: i64,
+) -> Result<Option<Track>> {
+    let Some(mut track) = get_track_by_id(connection, track_id)? else {
+        return Ok(None);
+    };
+    let Some(mut lyrics) = track.lyrics.clone() else {
+        return Ok(Some(track));
+    };
+
+    lyrics.global_offset_ms = offset_ms.clamp(-30_000, 30_000);
+    let json = serde_json::to_string(&lyrics)?;
+    connection.execute(
+        "UPDATE tracks SET lyrics_json = ?1, updated_at = ?2 WHERE id = ?3",
+        params![json, Utc::now().to_rfc3339(), track_id],
+    )?;
+
+    track.lyrics = Some(lyrics);
+    Ok(Some(track))
+}
+
 fn repair_stored_lyrics(connection: &Connection, tracks: &mut [Track]) -> Result<()> {
     for track in tracks {
         let Some(repaired) = track
@@ -516,7 +539,7 @@ fn infer_picture_extension(bytes: &[u8], mime_type: Option<&str>) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Track;
+    use crate::types::{LyricLine, LyricsDocument, Track};
 
     fn test_track(id: &str, file_path: &str) -> Track {
         Track {
@@ -563,5 +586,63 @@ mod tests {
         let deleted = delete_track_record(&connection, "missing").expect("delete missing track");
 
         assert!(deleted.is_none());
+    }
+
+    #[test]
+    fn update_lyrics_offset_persists_global_offset() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        init_database(&connection).expect("init db");
+        let mut track = test_track("track-offset", "/tmp/musicx-offset.mp3");
+        track.lyrics = Some(LyricsDocument {
+            source_kind: "manual".to_string(),
+            provider: "test".to_string(),
+            lang: Some("en".to_string()),
+            raw_text: None,
+            is_synced: true,
+            confidence: 1.0,
+            source_duration_ms: Some(track.duration_ms),
+            global_offset_ms: 0,
+            lines: vec![LyricLine {
+                start_ms: 0,
+                end_ms: Some(1_000),
+                text: "hello".to_string(),
+                secondary_text: None,
+                confidence: 1.0,
+            }],
+        });
+        save_track(&connection, &track).expect("save track with lyrics");
+
+        let updated = update_lyrics_offset(&connection, "track-offset", 750)
+            .expect("update offset")
+            .expect("updated track");
+        assert_eq!(
+            updated
+                .lyrics
+                .as_ref()
+                .map(|lyrics| lyrics.global_offset_ms),
+            Some(750),
+        );
+
+        let persisted = get_track_by_id(&connection, "track-offset")
+            .expect("read persisted track")
+            .expect("persisted track");
+        assert_eq!(
+            persisted
+                .lyrics
+                .as_ref()
+                .map(|lyrics| lyrics.global_offset_ms),
+            Some(750),
+        );
+
+        let clamped = update_lyrics_offset(&connection, "track-offset", 99_999)
+            .expect("clamp offset")
+            .expect("clamped track");
+        assert_eq!(
+            clamped
+                .lyrics
+                .as_ref()
+                .map(|lyrics| lyrics.global_offset_ms),
+            Some(30_000),
+        );
     }
 }

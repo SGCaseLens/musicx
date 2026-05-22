@@ -49,6 +49,7 @@ import {
   searchYoutubeVideos,
   setSystemOutputVolume,
   subscribeToDownloadProgress,
+  updateTrackLyricsOffset,
 } from "./lib/tauri";
 import type {
   BootstrapResult,
@@ -67,6 +68,35 @@ type SourceFilter = "all" | "local" | "youtube";
 
 const SYSTEM_VOLUME_SYNC_INTERVAL_MS = 1_250;
 const SYSTEM_VOLUME_LOCAL_SETTLE_MS = 700;
+const MAX_DOWNLOAD_ATTEMPTS = 3;
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+function isRetriableDownloadError(error: unknown): boolean {
+  const message = toErrorMessage(error).toLowerCase();
+  return [
+    "429",
+    "too many requests",
+    "timed out",
+    "timeout",
+    "network",
+    "connection",
+    "temporarily",
+    "unavailable",
+    "reset",
+    "failed to fetch",
+    "http error",
+    "could not complete",
+  ].some((token) => message.includes(token));
+}
+
+function retryDelayMs(attempt: number): number {
+  return 650 * attempt + 350;
+}
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -147,6 +177,8 @@ function App() {
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(
     null,
   );
+  const [retryDownloadVideo, setRetryDownloadVideo] = useState<YouTubeVideo | null>(null);
+  const [retryDownloadAutoplay, setRetryDownloadAutoplay] = useState(false);
   const autoplayNextSelectionRef = useRef(false);
   const sawDownloadProgressRef = useRef(false);
   const handledEndedCountRef = useRef(0);
@@ -436,8 +468,6 @@ function App() {
         tone: "danger" as const,
         text: `${t("statusDownloadError")}: ${progress.message ?? ""}`.trim(),
       };
-      activeDownloadVideoRef.current = null;
-      setDownloadingVideoId(null);
       setDownloadNotice(nextNotice);
       setNotice(nextNotice);
     }
@@ -451,6 +481,8 @@ function App() {
       };
       activeDownloadVideoRef.current = null;
       setDownloadingVideoId(null);
+      setRetryDownloadVideo(null);
+      setRetryDownloadAutoplay(false);
       setDownloadNotice(nextNotice);
       setNotice(nextNotice);
       void refreshLibrary(false);
@@ -629,6 +661,62 @@ function App() {
       console.warn("Couldn't auto-load lyrics", error);
     }
   });
+
+  const handleLyricOffsetChange = useEffectEvent(
+    async (trackId: string, nextOffsetMs: number) => {
+      const safeOffsetMs = clamp(Math.round(nextOffsetMs), -30_000, 30_000);
+      let previousOffsetMs = 0;
+
+      setTracks((current) =>
+        current.map((track) => {
+          if (track.id !== trackId) {
+            return track;
+          }
+
+          previousOffsetMs = track.lyricOffsetMs ?? 0;
+          return {
+            ...track,
+            lyricOffsetMs: safeOffsetMs,
+          };
+        }),
+      );
+
+      try {
+        const updatedTrack = await updateTrackLyricsOffset(trackId, safeOffsetMs);
+        if (updatedTrack) {
+          setTracks((current) =>
+            current.map((track) =>
+              track.id === trackId
+                ? {
+                    ...track,
+                    lyricOffsetMs: updatedTrack.lyricOffsetMs ?? safeOffsetMs,
+                    lyrics: updatedTrack.lyrics ?? track.lyrics,
+                    lyricSource: updatedTrack.lyricSource ?? track.lyricSource,
+                  }
+                : track,
+            ),
+          );
+        }
+      } catch (error) {
+        setTracks((current) =>
+          current.map((track) =>
+            track.id === trackId
+              ? {
+                  ...track,
+                  lyricOffsetMs: previousOffsetMs,
+                }
+              : track,
+          ),
+        );
+        const nextNotice = {
+          tone: toneFromError(error),
+          text: `${t("statusLyricsOffsetError")}: ${toErrorMessage(error)}`,
+        };
+        setLyricsNotice(nextNotice);
+        setNotice(nextNotice);
+      }
+    },
+  );
 
   useEffect(() => {
     if (
@@ -1009,6 +1097,8 @@ function App() {
 
     activeDownloadVideoRef.current = video.id;
     sawDownloadProgressRef.current = false;
+    setRetryDownloadVideo(null);
+    setRetryDownloadAutoplay(false);
     setActiveContextTab("downloads");
     setDownloadingVideoId(video.id);
     setDownloadProgress({
@@ -1025,7 +1115,46 @@ function App() {
     setNotice(queuedNotice);
 
     try {
-      const downloadedTrack = await downloadYoutubeAudio(video, locale);
+      let downloadedTrack: Track | null = null;
+      let lastError: unknown;
+
+      for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt += 1) {
+        try {
+          downloadedTrack = await downloadYoutubeAudio(video, locale);
+          lastError = undefined;
+          break;
+        } catch (error) {
+          lastError = error;
+          const shouldRetry =
+            attempt < MAX_DOWNLOAD_ATTEMPTS && isRetriableDownloadError(error);
+          if (!shouldRetry) {
+            break;
+          }
+
+          const retryNotice = {
+            tone: "neutral" as const,
+            text: t("statusDownloadRetrying", {
+              title: video.title,
+              attempt: attempt + 1,
+              max: MAX_DOWNLOAD_ATTEMPTS,
+            }),
+          };
+          setDownloadProgress({
+            videoId: video.id,
+            title: video.title,
+            phase: "queued",
+            progress: Math.min(92, attempt * 14),
+            message: retryNotice.text,
+          });
+          setDownloadNotice(retryNotice);
+          setNotice(retryNotice);
+          await sleep(retryDelayMs(attempt));
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
 
       if (downloadedTrack) {
         playDownloadedTrack(downloadedTrack, Boolean(options?.autoplay));
@@ -1053,6 +1182,8 @@ function App() {
         tone: "danger" as const,
         text: `${t("statusDownloadError")}: ${message}`,
       };
+      setRetryDownloadVideo(video);
+      setRetryDownloadAutoplay(Boolean(options?.autoplay));
       setDownloadProgress({
         videoId: video.id,
         title: video.title,
@@ -1548,6 +1679,14 @@ function App() {
                   error={lyricsError}
                   status={lyricsNotice?.text ?? null}
                   statusTone={lyricsNotice?.tone ?? "neutral"}
+                  lyricOffsetMs={selectedTrack?.lyricOffsetMs ?? 0}
+                  onLyricOffsetChange={(offsetMs) => {
+                    if (!selectedTrack) {
+                      return;
+                    }
+
+                    void handleLyricOffsetChange(selectedTrack.id, offsetMs);
+                  }}
                   onRefreshLyrics={async () => {
                     if (!selectedTrack) {
                       return;
@@ -1637,7 +1776,19 @@ function App() {
               ) : null}
 
               {activeContextTab === "downloads" ? (
-                <DownloadPanel progress={downloadProgress} status={downloadNotice} t={t} />
+                <DownloadPanel
+                  progress={downloadProgress}
+                  status={downloadNotice}
+                  onRetry={
+                    retryDownloadVideo
+                      ? () =>
+                          void handleYoutubeDownload(retryDownloadVideo, {
+                            autoplay: retryDownloadAutoplay,
+                          })
+                      : undefined
+                  }
+                  t={t}
+                />
               ) : null}
             </div>
 

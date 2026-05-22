@@ -14,8 +14,16 @@ interface LyricsPanelProps {
   error?: string;
   status?: string | null;
   statusTone?: NoticeTone;
+  lyricOffsetMs: number;
+  onLyricOffsetChange: (offsetMs: number) => void | Promise<void>;
   onRefreshLyrics: () => void | Promise<void>;
   t: TranslateFn;
+}
+
+function formatOffset(offsetMs: number): string {
+  const seconds = offsetMs / 1000;
+  const sign = seconds > 0 ? "+" : "";
+  return `${sign}${seconds.toFixed(1)}s`;
 }
 
 export function LyricsPanel({
@@ -25,13 +33,16 @@ export function LyricsPanel({
   error,
   status,
   statusTone = "neutral",
+  lyricOffsetMs,
+  onLyricOffsetChange,
   onRefreshLyrics,
   t,
 }: LyricsPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledIndexRef = useRef(-1);
   const lyrics = track?.lyrics ?? [];
-  const activeIndex = findActiveLyricIndex(lyrics, currentTime);
+  const adjustedCurrentTime = Math.max(0, currentTime - lyricOffsetMs / 1000);
+  const activeIndex = findActiveLyricIndex(lyrics, adjustedCurrentTime);
 
   const scrollActiveLine = useEffectEvent((index: number) => {
     const container = containerRef.current;
@@ -113,6 +124,37 @@ export function LyricsPanel({
             <Clock3 size={15} strokeWidth={2.2} aria-hidden="true" />
             {t("lyricsTimelineLabel")}: {formatDuration(currentTime)}
           </span>
+          {lyrics.length ? (
+            <div className="lyrics-offset-controls" aria-label={t("lyricsOffsetLabel")}>
+              <span className="chip chip--soft">
+                {t("lyricsOffsetLabel")}: {formatOffset(lyricOffsetMs)}
+              </span>
+              <div className="lyrics-offset-controls__buttons">
+                <button
+                  type="button"
+                  className="tiny-button"
+                  onClick={() => void onLyricOffsetChange(lyricOffsetMs - 500)}
+                >
+                  {t("lyricsOffsetEarlier")}
+                </button>
+                <button
+                  type="button"
+                  className="tiny-button"
+                  onClick={() => void onLyricOffsetChange(0)}
+                  disabled={lyricOffsetMs === 0}
+                >
+                  {t("lyricsOffsetReset")}
+                </button>
+                <button
+                  type="button"
+                  className="tiny-button"
+                  onClick={() => void onLyricOffsetChange(lyricOffsetMs + 500)}
+                >
+                  {t("lyricsOffsetLater")}
+                </button>
+              </div>
+            </div>
+          ) : null}
           {track.lyricSource ? (
             <span className="chip chip--soft">
               {t("lyricsSourceLabel")}: {track.lyricSource}

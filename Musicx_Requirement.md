@@ -28,7 +28,7 @@ Use these exact identifiers:
 | Rust package name | `musicx` |
 | Rust library crate | `musicx_lib` |
 | Tauri bundle identifier | `com.musicx` |
-| Version | `0.1.3` |
+| Version | `0.1.4` |
 | Main window title | `musicx` |
 | Primary target | macOS arm64 desktop |
 
@@ -67,7 +67,8 @@ The app can include a browser-only demo mode for frontend development, but the s
 {
   "dev": "vite",
   "build": "tsc && vite build",
-  "test": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml",
+  "test": "pnpm build && pnpm test:ui && cargo test --manifest-path src-tauri/Cargo.toml",
+  "test:ui": "vitest run",
   "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
   "preview": "vite preview",
   "tauri": "tauri"
@@ -79,7 +80,7 @@ The app can include a browser-only demo mode for frontend development, but the s
 `src-tauri/tauri.conf.json` must include:
 
 - `productName`: `musicx`
-- `version`: `0.1.3`
+- `version`: `0.1.4`
 - `identifier`: `com.musicx`
 - `beforeDevCommand`: `pnpm dev`
 - `devUrl`: `http://localhost:1420`
@@ -114,7 +115,9 @@ src/
   types.ts
   components/
     DownloadPanel.tsx
+    DownloadPanel.test.tsx
     LyricsPanel.tsx
+    LyricsPanel.test.tsx
     NowPlayingCard.tsx
     TrackList.tsx
     YouTubePanel.tsx
@@ -125,8 +128,12 @@ src/
   lib/
     format.ts
     lyrics.ts
+    lyrics.test.ts
     mockData.ts
     tauri.ts
+  test/
+    setup.ts
+vitest.config.ts
 src-tauri/
   tauri.conf.json
   Cargo.toml
@@ -396,6 +403,15 @@ YouTube subtitles must not fall back to plain text, because that produces unsync
 
 When listing tracks, detect stored lyric documents whose `raw_text` is timed text but whose lines were previously stored incorrectly. Re-parse and repair them in SQLite.
 
+### Lyric Offset
+
+- Store a per-track `global_offset_ms` in the lyrics JSON.
+- Expose a Tauri command to update the offset and persist it in SQLite.
+- Clamp offset writes to `-30000..30000` milliseconds on both frontend and backend.
+- Apply the offset during active lyric lookup without mutating individual lyric timestamps.
+- Positive offsets delay lyric highlighting; negative offsets move lyrics earlier.
+- Provide UI controls for `-0.5s`, reset, and `+0.5s`.
+
 ### Remote Search
 
 Use LRCLIB:
@@ -439,6 +455,8 @@ Search behavior:
 Only support YouTube video IDs or YouTube video URLs. Reject non-YouTube URLs.
 
 Only one download per video identity should run at a time.
+
+The frontend should retry recoverable failures up to three attempts before showing a manual retry action. Recoverable failures include HTTP 429 rate limits, timeouts, transient network errors, unavailable responses, and connection resets. The active download lock must remain held until the command finishes or fails, so automatic retry windows cannot create overlapping downloads.
 
 Download flow:
 
@@ -662,6 +680,7 @@ Lyrics panel:
 
 - Current timeline chip.
 - Source chip when available.
+- Persisted lyric offset controls.
 - Find lyrics button.
 - Scrollable lyric list.
 - Active line highlighting.
@@ -683,6 +702,7 @@ Downloads panel:
 - Percent.
 - Progress bar.
 - Message text.
+- Retry button when the final download state is an error.
 - Empty state.
 
 ## 21. Internationalization Requirements
@@ -783,7 +803,7 @@ On macOS:
 The release build must produce:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.1.3_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.1.4_aarch64.dmg`
 
 The currently expected release is macOS arm64. Do not claim notarization, universal binaries, app-store distribution, auto-updates, or Windows/Linux packages unless those are added later.
 
@@ -793,6 +813,7 @@ Run:
 
 ```bash
 pnpm build
+pnpm test:ui
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build
@@ -801,7 +822,7 @@ pnpm tauri build
 Manual checks:
 
 - App launches as `musicx`.
-- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.1.3`.
+- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.1.4`.
 - Built-in demo track appears and plays.
 - Import opens a native file picker.
 - Supported local audio imports, copies into library, and appears in the track list.
@@ -825,9 +846,11 @@ Manual checks:
 - macOS volume changes outside the app sync back into the app volume slider.
 - Long lyrics scroll inside the lyrics panel without shaking or stretching the main UI.
 - Active lyrics match playback time for VTT/SRT/LRC inputs.
+- Lyric offset buttons move active lyric highlighting by 0.5 second steps and persist after refresh.
 - YouTube search accepts Chinese and English queries.
 - YouTube result double-click downloads, adds to library, and auto-plays after completion.
 - YouTube subtitle 429 warnings do not fail an otherwise successful audio download.
+- Recoverable YouTube download failures retry automatically, then expose a manual retry button if all attempts fail.
 - YouTube downloads save MP3 files into the app library.
 - App close button hides the window instead of quitting on macOS.
 - Dock reopen shows and focuses the main window.
@@ -856,10 +879,18 @@ At minimum, include Rust unit tests for:
 - YouTube VTT cue settings and inline tag parsing.
 - Remote-subtitle documents not falling back to raw plain text.
 - Repairing stored raw timed-text lyrics.
+- Lyric offset persistence and backend clamping.
 - Delete record success and missing no-op.
 - Demo track asset generation.
 - macOS volume conversion and parsing.
 - Temporary `com.cantodeck` data migration back to `com.musicx`.
+
+At minimum, include Vitest UI/unit tests for:
+
+- Active lyric lookup with a non-zero lyric offset.
+- Lyric offset button callbacks.
+- WebVTT parsing into separate timed lines.
+- Download error retry action rendering and click handling.
 
 ## 31. Known Constraints
 
@@ -867,5 +898,4 @@ At minimum, include Rust unit tests for:
 - Lyrics lookup depends on LRCLIB availability and track metadata quality.
 - System volume control is macOS-specific.
 - Current release artifacts are local macOS arm64 builds and are not notarized.
-- There is no frontend automated test suite in the current implementation.
 - There is no CI configuration in the current implementation.

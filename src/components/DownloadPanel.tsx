@@ -8,10 +8,11 @@ import type { DownloadProgress, Notice } from "../types";
 interface DownloadPanelProps {
   progress: DownloadProgress | null;
   status: Notice | null;
+  onRetry?: () => void | Promise<void>;
   t: TranslateFn;
 }
 
-export function DownloadPanel({ progress, status, t }: DownloadPanelProps) {
+export function DownloadPanel({ progress, status, onRetry, t }: DownloadPanelProps) {
   const progressLabelMap: Record<DownloadProgress["phase"], TranslationKey> = {
     queued: "downloadPhaseQueued",
     searching: "downloadPhaseSearching",
@@ -68,6 +69,14 @@ export function DownloadPanel({ progress, status, t }: DownloadPanelProps) {
 
           {progress.message ? (
             <p className="download-monitor__message">{progress.message}</p>
+          ) : null}
+
+          {progress.phase === "error" && onRetry ? (
+            <div className="download-monitor__actions">
+              <button type="button" className="secondary-button" onClick={() => void onRetry()}>
+                {t("downloadRetryAction")}
+              </button>
+            </div>
           ) : null}
         </div>
       ) : (

@@ -16,6 +16,30 @@ interface AudioPlayerOptions {
   volumeMode?: "element" | "system";
 }
 
+function describeMediaError(error: MediaError | null): string {
+  if (!error) {
+    return "Audio playback failed";
+  }
+
+  const detail = error.message?.trim();
+  const fallback = (() => {
+    switch (error.code) {
+      case MediaError.MEDIA_ERR_ABORTED:
+        return "Audio playback was aborted";
+      case MediaError.MEDIA_ERR_NETWORK:
+        return "Audio playback failed because of a network or file access issue";
+      case MediaError.MEDIA_ERR_DECODE:
+        return "Audio playback failed because the file could not be decoded";
+      case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        return "Audio playback failed because the source format is not supported";
+      default:
+        return "Audio playback failed";
+    }
+  })();
+
+  return detail ? `${fallback}: ${detail}` : fallback;
+}
+
 export function useAudioPlayer(
   track: Track | null,
   sourceUrl?: string,
@@ -27,6 +51,7 @@ export function useAudioPlayer(
   const playRequestIdRef = useRef(0);
   const frameRef = useRef<number | null>(null);
   const lastFrameSyncRef = useRef(0);
+  const pendingSeekRef = useRef<number | null>(null);
   const [endedCount, setEndedCount] = useState(0);
   const [playback, setPlayback] = useState<PlaybackState>({
     currentTime: 0,
@@ -153,7 +178,7 @@ export function useAudioPlayer(
     }
 
     const handleError = () => {
-      const mediaError = audio.error?.message ?? "Audio playback failed";
+      const mediaError = describeMediaError(audio.error);
       playIntentRef.current = false;
       stopProgressTicker();
       setPlayback((current) => ({
@@ -178,7 +203,30 @@ export function useAudioPlayer(
       setEndedCount((current) => current + 1);
     };
 
-    const handleLoadedMetadata = () => syncFromElement(true);
+    const applyPendingSeek = () => {
+      const pendingSeek = pendingSeekRef.current;
+      if (pendingSeek === null) {
+        return;
+      }
+
+      const duration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration
+          : track?.durationSec || pendingSeek;
+      const safeTime = clamp(pendingSeek, 0, duration || 0);
+      try {
+        audio.currentTime = safeTime;
+      } catch {
+        return;
+      }
+
+      pendingSeekRef.current = null;
+    };
+
+    const handleLoadedMetadata = () => {
+      applyPendingSeek();
+      syncFromElement(true);
+    };
     const handleTimeUpdate = () => syncFromElement();
     const handlePlay = () => {
       if (!playIntentRef.current) {
@@ -225,6 +273,7 @@ export function useAudioPlayer(
     stopProgressTicker();
     playIntentRef.current = false;
     playRequestIdRef.current += 1;
+    pendingSeekRef.current = null;
     audio.pause();
     if (sourceUrl) {
       audio.load();
@@ -292,6 +341,7 @@ export function useAudioPlayer(
   function seek(nextTime: number): void {
     const audio = audioRef.current;
     if (!audio) {
+      pendingSeekRef.current = clamp(nextTime, 0, playback.duration || track?.durationSec || 0);
       return;
     }
 
@@ -299,12 +349,26 @@ export function useAudioPlayer(
       ? audio.duration
       : playback.duration || track?.durationSec || 0;
     const safeTime = clamp(nextTime, 0, duration || 0);
-    audio.currentTime = safeTime;
+    if (duration > 0 || audio.readyState > HTMLMediaElement.HAVE_NOTHING) {
+      try {
+        audio.currentTime = safeTime;
+        pendingSeekRef.current = null;
+      } catch {
+        pendingSeekRef.current = safeTime;
+      }
+    } else {
+      pendingSeekRef.current = safeTime;
+    }
+
     setPlayback((current) => ({
       ...current,
       currentTime: safeTime,
       duration: duration || current.duration,
     }));
+
+    if (!audio.paused && !audio.ended) {
+      startProgressTicker();
+    }
   }
 
   function setVolume(nextVolume: number): void {
