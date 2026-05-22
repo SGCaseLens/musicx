@@ -29,7 +29,7 @@ Use these exact identifiers:
 | Rust package name | `musicx` |
 | Rust library crate | `musicx_lib` |
 | Tauri bundle identifier | `com.musicx` |
-| Version | `0.2.0` |
+| Version | `0.2.1` |
 | Main window title | `musicx` |
 | Primary target | macOS arm64 desktop |
 
@@ -81,7 +81,7 @@ The app can include a browser-only demo mode for frontend development, but the s
 `src-tauri/tauri.conf.json` must include:
 
 - `productName`: `musicx`
-- `version`: `0.2.0`
+- `version`: `0.2.1`
 - `identifier`: `com.musicx`
 - `beforeDevCommand`: `pnpm dev`
 - `devUrl`: `http://localhost:1420`
@@ -101,6 +101,7 @@ The app can include a browser-only demo mode for frontend development, but the s
   - Active.
   - Target all configured Tauri targets.
   - External binary: `binaries/ffmpeg`.
+  - macOS signing identity: `-` for explicit ad-hoc bundle signing when no Developer ID certificate is available.
   - Icons include `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns`, and `icon.ico`.
 
 ## 5. File And Module Layout
@@ -807,7 +808,7 @@ On macOS:
 The release build must produce:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.2.0_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.2.1_aarch64.dmg`
 
 The currently expected release is macOS arm64. Do not claim notarization, universal binaries, app-store distribution, auto-updates, or Windows/Linux packages unless those are added later.
 
@@ -826,7 +827,8 @@ pnpm tauri build
 Manual checks:
 
 - App launches as `musicx`.
-- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.2.0`.
+- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.2.1`.
+- `codesign --verify --deep --strict` passes for `musicx.app`.
 - Built-in demo track appears and plays.
 - Import opens a native file picker.
 - Supported local audio imports, copies into library, and appears in the track list.

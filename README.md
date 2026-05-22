@@ -6,7 +6,7 @@ The current app identity is:
 
 - Product name: `musicx`
 - Bundle identifier: `com.musicx`
-- Version: `0.2.0`
+- Version: `0.2.1`
 - Primary target: macOS arm64
 - Stack: Tauri 2, React 19, TypeScript, Vite, Rust
 
@@ -17,6 +17,7 @@ The current app identity is:
 - Load synced lyrics from local sidecars, embedded metadata, YouTube subtitles, or LRCLIB.
 - Highlight and auto-scroll lyrics while the song plays, with persisted lyric offset controls for fine alignment.
 - Build a real library with favorites, recent plays, persistent queue, sorting, and right-click row actions.
+- Build DMGs with an explicitly sealed ad-hoc macOS app bundle when no Developer ID certificate is available.
 - Play, pause, scrub, seek, adjust volume, delete tracks, shuffle, and repeat.
 - Control macOS system output volume from the in-app volume slider.
 - Show per-track artwork in the collection when artwork is available.
@@ -101,7 +102,7 @@ pnpm tauri build
 Observed release artifacts:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.2.0_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.2.1_aarch64.dmg`
 
 The current local bundle is ad-hoc signed and not notarized.
 
