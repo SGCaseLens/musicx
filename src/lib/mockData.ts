@@ -120,6 +120,39 @@ export function deleteMockTrack(trackId: string): boolean {
   return mockLibrary.length !== previousLength;
 }
 
+export function updateMockTrackFavorite(trackId: string, isFavorite: boolean): Track | null {
+  let updatedTrack: Track | null = null;
+  mockLibrary = mockLibrary.map((track) => {
+    if (track.id !== trackId) {
+      return track;
+    }
+
+    updatedTrack = {
+      ...track,
+      isFavorite,
+    };
+    return updatedTrack;
+  });
+  return updatedTrack;
+}
+
+export function recordMockTrackPlayed(trackId: string): Track | null {
+  let updatedTrack: Track | null = null;
+  mockLibrary = mockLibrary.map((track) => {
+    if (track.id !== trackId) {
+      return track;
+    }
+
+    updatedTrack = {
+      ...track,
+      playCount: (track.playCount ?? 0) + 1,
+      lastPlayedAt: new Date().toISOString(),
+    };
+    return updatedTrack;
+  });
+  return updatedTrack;
+}
+
 export function simulateLocalImport(): Track[] {
   const nextTrack = importQueue.shift();
   if (!nextTrack) {

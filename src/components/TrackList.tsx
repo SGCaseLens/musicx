@@ -1,4 +1,4 @@
-import { Disc3, Pause, Play, Trash2 } from "lucide-react";
+import { Disc3, ListPlus, MoreHorizontal, Pause, Play, Star, Trash2 } from "lucide-react";
 
 import {
   formatDuration,
@@ -18,9 +18,14 @@ interface TrackListProps {
   isPlaying: boolean;
   locale: Locale;
   deletingTrackId?: string | null;
+  queuedTrackIds: string[];
   onSelect: (trackId: string) => void;
   onPlay: (track: Track) => void;
+  onToggleFavorite: (track: Track) => void;
+  onAddToQueue: (track: Track, placement: "next" | "end") => void;
+  onRemoveFromQueue: (track: Track) => void;
   onDelete: (track: Track) => void;
+  onOpenMenu: (track: Track, x: number, y: number) => void;
   t: TranslateFn;
 }
 
@@ -31,9 +36,14 @@ export function TrackList({
   isPlaying,
   locale,
   deletingTrackId,
+  queuedTrackIds,
   onSelect,
   onPlay,
+  onToggleFavorite,
+  onAddToQueue,
+  onRemoveFromQueue,
   onDelete,
+  onOpenMenu,
   t,
 }: TrackListProps) {
   if (!tracks.length) {
@@ -58,6 +68,9 @@ export function TrackList({
         );
         const artworkUrl =
           resolveMediaUrl(track.artworkPath) ?? resolveMediaUrl(track.artworkUrl);
+        const isFavorite = Boolean(track.isFavorite);
+        const isQueued = queuedTrackIds.includes(track.id);
+        const lastPlayedAt = formatTimestamp(track.lastPlayedAt, locale);
 
         return (
           <li
@@ -69,6 +82,10 @@ export function TrackList({
             ]
               .filter(Boolean)
               .join(" ")}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onOpenMenu(track, event.clientX, event.clientY);
+            }}
           >
             <button
               type="button"
@@ -94,10 +111,25 @@ export function TrackList({
                     {t("trackImportedLabel")}: {formatTimestamp(track.importedAt, locale)}
                   </span>
                 ) : null}
+                {lastPlayedAt ? (
+                  <span className="track-row__submeta">
+                    {t("trackLastPlayedLabel")}: {lastPlayedAt}
+                  </span>
+                ) : null}
                 <div className="track-row__details">
                   <span className={["source-pill", sourceAccent(track.source)].join(" ")}>
                     {trackSourceLabel(track.source, locale)}
                   </span>
+                  {isFavorite ? (
+                    <span className="source-pill source-favorite">
+                      {t("libraryFilterFavorites")}
+                    </span>
+                  ) : null}
+                  {isQueued ? (
+                    <span className="source-pill source-queued">
+                      {t("trackQueuedLabel")}
+                    </span>
+                  ) : null}
                   <span className="track-row__duration">
                     {formatDuration(track.durationSec) || t("trackDurationUnknown")}
                   </span>
@@ -105,6 +137,25 @@ export function TrackList({
               </div>
             </button>
             <div className="track-row__actions">
+              <button
+                type="button"
+                className={[
+                  "track-row__action",
+                  isFavorite ? "track-row__action--favorite" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-label={isFavorite ? t("trackUnfavorite") : t("trackFavorite")}
+                title={isFavorite ? t("trackUnfavorite") : t("trackFavorite")}
+                onClick={() => onToggleFavorite(track)}
+              >
+                <Star
+                  size={15}
+                  strokeWidth={2.3}
+                  fill={isFavorite ? "currentColor" : "none"}
+                  aria-hidden="true"
+                />
+              </button>
               <button
                 type="button"
                 className="track-row__action"
@@ -119,6 +170,22 @@ export function TrackList({
               </button>
               <button
                 type="button"
+                className="track-row__action"
+                aria-label={isQueued ? t("trackRemoveFromQueue") : t("trackAddToQueue")}
+                title={isQueued ? t("trackRemoveFromQueue") : t("trackAddToQueue")}
+                onClick={() => {
+                  if (isQueued) {
+                    onRemoveFromQueue(track);
+                    return;
+                  }
+
+                  onAddToQueue(track, "end");
+                }}
+              >
+                <ListPlus size={15} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
                 className="track-row__action track-row__action--danger"
                 aria-label={t("trackDelete")}
                 title={t("trackDelete")}
@@ -126,6 +193,18 @@ export function TrackList({
                 disabled={Boolean(deletingTrackId)}
               >
                 <Trash2 size={15} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="track-row__action"
+                aria-label={t("trackMoreActions")}
+                title={t("trackMoreActions")}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onOpenMenu(track, rect.right, rect.bottom);
+                }}
+              >
+                <MoreHorizontal size={16} strokeWidth={2.2} aria-hidden="true" />
               </button>
             </div>
           </li>

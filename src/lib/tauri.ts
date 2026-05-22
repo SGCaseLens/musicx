@@ -21,10 +21,12 @@ import {
   deleteMockTrack,
   getMockBootstrap,
   getMockTracks,
+  recordMockTrackPlayed,
   searchMockLyrics,
   searchMockVideos,
   simulateDownloadedTrack,
   simulateLocalImport,
+  updateMockTrackFavorite,
 } from "./mockData";
 
 const DOWNLOAD_EVENT_NAME = "youtube-download-progress";
@@ -72,6 +74,20 @@ function readNumber(record: Record<string, unknown>, keys: string[]): number | u
     const value = record[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
+    }
+  }
+
+  return undefined;
+}
+
+function readBoolean(record: Record<string, unknown>, keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value !== 0;
     }
   }
 
@@ -132,6 +148,9 @@ function normalizeTrack(input: unknown, index: number): Track | null {
     lyricSource: lyricsSource,
     lyricOffsetMs,
     importedAt: readString(input, ["createdAt", "created_at", "importedAt", "imported_at"]),
+    isFavorite: readBoolean(input, ["isFavorite", "is_favorite"]) ?? false,
+    playCount: readNumber(input, ["playCount", "play_count"]) ?? 0,
+    lastPlayedAt: readString(input, ["lastPlayedAt", "last_played_at"]),
     youtubeId: readString(input, ["youtubeVideoId", "youtube_video_id", "youtubeId", "youtube_id"]),
     source,
     language: readString(input, ["language", "lang"]),
@@ -478,6 +497,32 @@ export async function updateTrackLyricsOffset(
     trackId,
     offsetMs,
   });
+  return normalizeTrack(response, 0);
+}
+
+export async function updateTrackFavorite(
+  trackId: string,
+  isFavorite: boolean,
+): Promise<Track | null> {
+  if (!isTauri()) {
+    await sleep(80);
+    return updateMockTrackFavorite(trackId, isFavorite);
+  }
+
+  const response = await invokeCommand("update_track_favorite", {
+    trackId,
+    isFavorite,
+  });
+  return normalizeTrack(response, 0);
+}
+
+export async function recordTrackPlayed(trackId: string): Promise<Track | null> {
+  if (!isTauri()) {
+    await sleep(40);
+    return recordMockTrackPlayed(trackId);
+  }
+
+  const response = await invokeCommand("record_track_played", { trackId });
   return normalizeTrack(response, 0);
 }
 

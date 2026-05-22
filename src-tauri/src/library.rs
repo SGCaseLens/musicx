@@ -48,11 +48,35 @@ pub fn init_database(connection: &Connection) -> Result<()> {
             youtube_video_id TEXT,
             youtube_url TEXT,
             lyrics_json TEXT,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            play_count INTEGER NOT NULL DEFAULT 0,
+            last_played_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_tracks_updated_at ON tracks(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tracks_last_played_at ON tracks(last_played_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tracks_favorite ON tracks(is_favorite, title COLLATE NOCASE);
         "#,
+    )?;
+    ensure_column(connection, "is_favorite", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(connection, "play_count", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(connection, "last_played_at", "TEXT")?;
+    Ok(())
+}
+
+fn ensure_column(connection: &Connection, column: &str, definition: &str) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(tracks)")?;
+    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in columns {
+        if existing? == column {
+            return Ok(());
+        }
+    }
+
+    connection.execute(
+        &format!("ALTER TABLE tracks ADD COLUMN {column} {definition}"),
+        [],
     )?;
     Ok(())
 }
@@ -68,7 +92,8 @@ pub fn list_tracks(connection: &Connection) -> Result<Vec<Track>> {
         r#"
         SELECT
             id, source_kind, title, artist, album, duration_ms, file_path, original_path,
-            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json, created_at, updated_at
+            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json,
+            is_favorite, play_count, last_played_at, created_at, updated_at
         FROM tracks
         ORDER BY updated_at DESC, title COLLATE NOCASE ASC
         "#,
@@ -88,7 +113,8 @@ pub fn get_track_by_id(connection: &Connection, track_id: &str) -> Result<Option
         r#"
         SELECT
             id, source_kind, title, artist, album, duration_ms, file_path, original_path,
-            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json, created_at, updated_at
+            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json,
+            is_favorite, play_count, last_played_at, created_at, updated_at
         FROM tracks
         WHERE id = ?1
         LIMIT 1
@@ -111,7 +137,8 @@ pub fn get_track_by_youtube_video_id(
         r#"
         SELECT
             id, source_kind, title, artist, album, duration_ms, file_path, original_path,
-            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json, created_at, updated_at
+            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json,
+            is_favorite, play_count, last_played_at, created_at, updated_at
         FROM tracks
         WHERE youtube_video_id = ?1
         LIMIT 1
@@ -147,9 +174,10 @@ pub fn save_track(connection: &Connection, track: &Track) -> Result<()> {
         r#"
         INSERT INTO tracks (
             id, source_kind, title, artist, album, duration_ms, file_path, original_path,
-            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json, created_at, updated_at
+            cover_art_path, language, youtube_video_id, youtube_url, lyrics_json,
+            is_favorite, play_count, last_played_at, created_at, updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
         ON CONFLICT(id) DO UPDATE SET
             source_kind = excluded.source_kind,
             title = excluded.title,
@@ -163,6 +191,9 @@ pub fn save_track(connection: &Connection, track: &Track) -> Result<()> {
             youtube_video_id = excluded.youtube_video_id,
             youtube_url = excluded.youtube_url,
             lyrics_json = excluded.lyrics_json,
+            is_favorite = excluded.is_favorite,
+            play_count = excluded.play_count,
+            last_played_at = excluded.last_played_at,
             updated_at = excluded.updated_at
         "#,
         params![
@@ -179,6 +210,9 @@ pub fn save_track(connection: &Connection, track: &Track) -> Result<()> {
             track.youtube_video_id,
             track.youtube_url,
             lyrics_json,
+            track.is_favorite,
+            track.play_count,
+            track.last_played_at,
             track.created_at,
             track.updated_at,
         ],
@@ -217,6 +251,34 @@ pub fn update_lyrics_offset(
 
     track.lyrics = Some(lyrics);
     Ok(Some(track))
+}
+
+pub fn update_track_favorite(
+    connection: &Connection,
+    track_id: &str,
+    is_favorite: bool,
+) -> Result<Option<Track>> {
+    if get_track_by_id(connection, track_id)?.is_none() {
+        return Ok(None);
+    }
+
+    connection.execute(
+        "UPDATE tracks SET is_favorite = ?1 WHERE id = ?2",
+        params![is_favorite, track_id],
+    )?;
+    get_track_by_id(connection, track_id)
+}
+
+pub fn record_track_played(connection: &Connection, track_id: &str) -> Result<Option<Track>> {
+    if get_track_by_id(connection, track_id)?.is_none() {
+        return Ok(None);
+    }
+
+    connection.execute(
+        "UPDATE tracks SET play_count = play_count + 1, last_played_at = ?1 WHERE id = ?2",
+        params![Utc::now().to_rfc3339(), track_id],
+    )?;
+    get_track_by_id(connection, track_id)
 }
 
 fn repair_stored_lyrics(connection: &Connection, tracks: &mut [Track]) -> Result<()> {
@@ -302,6 +364,9 @@ pub fn create_youtube_track(connection: &Connection, input: YoutubeTrackInput) -
         youtube_video_id: input.youtube_video_id,
         youtube_url: input.youtube_url,
         lyrics: input.lyrics,
+        is_favorite: false,
+        play_count: 0,
+        last_played_at: None,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -409,6 +474,9 @@ async fn import_single_track(
         youtube_video_id: Some(signature),
         youtube_url: None,
         lyrics,
+        is_favorite: false,
+        play_count: 0,
+        last_played_at: None,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -457,8 +525,11 @@ fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
         youtube_video_id: row.get(10)?,
         youtube_url: row.get(11)?,
         lyrics,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        is_favorite: row.get(13)?,
+        play_count: row.get(14)?,
+        last_played_at: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 
@@ -556,6 +627,9 @@ mod tests {
             youtube_video_id: None,
             youtube_url: None,
             lyrics: None,
+            is_favorite: false,
+            play_count: 0,
+            last_played_at: None,
             created_at: "2026-04-25T00:00:00Z".to_string(),
             updated_at: "2026-04-25T00:00:00Z".to_string(),
         }
@@ -644,5 +718,31 @@ mod tests {
                 .map(|lyrics| lyrics.global_offset_ms),
             Some(30_000),
         );
+    }
+
+    #[test]
+    fn favorite_and_recent_play_metadata_persist() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        init_database(&connection).expect("init db");
+        let track = test_track("track-library", "/tmp/musicx-library.mp3");
+        save_track(&connection, &track).expect("save track");
+
+        let favorited = update_track_favorite(&connection, "track-library", true)
+            .expect("favorite track")
+            .expect("favorited track");
+        assert!(favorited.is_favorite);
+
+        let played = record_track_played(&connection, "track-library")
+            .expect("record play")
+            .expect("played track");
+        assert_eq!(played.play_count, 1);
+        assert!(played.last_played_at.is_some());
+
+        let persisted = get_track_by_id(&connection, "track-library")
+            .expect("read track")
+            .expect("persisted track");
+        assert!(persisted.is_favorite);
+        assert_eq!(persisted.play_count, 1);
+        assert!(persisted.last_played_at.is_some());
     }
 }

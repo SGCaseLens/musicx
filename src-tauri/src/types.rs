@@ -40,6 +40,9 @@ pub struct Track {
     pub youtube_video_id: Option<String>,
     pub youtube_url: Option<String>,
     pub lyrics: Option<LyricsDocument>,
+    pub is_favorite: bool,
+    pub play_count: i64,
+    pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

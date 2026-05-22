@@ -1,6 +1,6 @@
 [package]
 name = "musicx"
-version = "0.1.4"
+version = "0.2.0"
 description = "musicx desktop app"
 authors = ["Codex"]
 edition = "2021"

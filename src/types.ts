@@ -8,6 +8,12 @@ export type PlaybackOrderMode = "normal" | "shuffle";
 
 export type RepeatMode = "off" | "all" | "one";
 
+export type LibraryFilter = "all" | "favorites" | "recent" | "local" | "youtube";
+
+export type LibrarySortMode = "added" | "title" | "artist" | "duration" | "lastPlayed";
+
+export type SortDirection = "asc" | "desc";
+
 export type DownloadPhase =
   | "queued"
   | "searching"
@@ -39,6 +45,9 @@ export interface Track {
   lyricSource?: string;
   lyricOffsetMs?: number;
   importedAt?: string;
+  isFavorite?: boolean;
+  playCount?: number;
+  lastPlayedAt?: string;
   youtubeId?: string;
   source: "local" | "youtube" | "demo" | "unknown";
 }

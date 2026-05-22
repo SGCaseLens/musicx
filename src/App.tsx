@@ -12,11 +12,18 @@ import {
   ArrowDownToLine,
   Disc3,
   Download,
+  Eraser,
+  ListMusic,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   RefreshCw,
   Search,
+  SortAsc,
+  SortDesc,
+  Star,
   TextQuote,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -36,6 +43,12 @@ import {
   toneFromError,
 } from "./lib/format";
 import {
+  addTrackToQueue,
+  materializeQueue,
+  removeTrackFromQueue,
+  sortLibraryTracks,
+} from "./lib/library";
+import {
   bootstrapApp,
   deleteTrack,
   downloadYoutubeAudio,
@@ -49,26 +62,37 @@ import {
   searchYoutubeVideos,
   setSystemOutputVolume,
   subscribeToDownloadProgress,
+  recordTrackPlayed,
   updateTrackLyricsOffset,
+  updateTrackFavorite,
 } from "./lib/tauri";
 import type {
   BootstrapResult,
   DownloadProgress,
+  LibraryFilter,
+  LibrarySortMode,
   Locale,
   Notice,
   PlaybackOrderMode,
   RepeatMode,
+  SortDirection,
   Track,
   YouTubeVideo,
 } from "./types";
 import "./App.css";
 
 type ContextTab = "lyrics" | "youtube" | "downloads";
-type SourceFilter = "all" | "local" | "youtube";
+type TrackMenuState = {
+  trackId: string;
+  x: number;
+  y: number;
+} | null;
 
 const SYSTEM_VOLUME_SYNC_INTERVAL_MS = 1_250;
 const SYSTEM_VOLUME_LOCAL_SETTLE_MS = 700;
 const MAX_DOWNLOAD_ATTEMPTS = 3;
+const QUEUE_STORAGE_KEY = "musicx.queueTrackIds.v1";
+const SORT_STORAGE_KEY = "musicx.librarySort.v1";
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -96,6 +120,44 @@ function isRetriableDownloadError(error: unknown): boolean {
 
 function retryDelayMs(attempt: number): number {
   return 650 * attempt + 350;
+}
+
+function readStoredQueue(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const stored = window.localStorage.getItem(QUEUE_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((trackId): trackId is string => typeof trackId === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function readStoredSort(): { mode: LibrarySortMode; direction: SortDirection } {
+  if (typeof window === "undefined") {
+    return { mode: "added", direction: "desc" };
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SORT_STORAGE_KEY) ?? "{}") as {
+      mode?: LibrarySortMode;
+      direction?: SortDirection;
+    };
+    const mode: LibrarySortMode = ["added", "title", "artist", "duration", "lastPlayed"].includes(
+      parsed.mode ?? "",
+    )
+      ? (parsed.mode as LibrarySortMode)
+      : "added";
+    const direction: SortDirection = parsed.direction === "asc" ? "asc" : "desc";
+    return { mode, direction };
+  } catch {
+    return { mode: "added", direction: "desc" };
+  }
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -154,7 +216,13 @@ function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [libraryQuery, setLibraryQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all");
+  const [librarySort, setLibrarySort] = useState<LibrarySortMode>(() => readStoredSort().mode);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(
+    () => readStoredSort().direction,
+  );
+  const [queueTrackIds, setQueueTrackIds] = useState<string[]>(() => readStoredQueue());
+  const [trackMenu, setTrackMenu] = useState<TrackMenuState>(null);
   const [activeContextTab, setActiveContextTab] = useState<ContextTab>("lyrics");
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [playbackOrderMode, setPlaybackOrderMode] =
@@ -193,22 +261,37 @@ function App() {
   const systemVolumeLocalChangeAtRef = useRef(0);
   const viewportSyncFrameRef = useRef<number | null>(null);
   const autoLyricsTrackIdsRef = useRef<Set<string>>(new Set());
+  const lastRecordedPlayTrackRef = useRef<string | null>(null);
 
   const t = createTranslator(locale);
   const deferredQuery = useDeferredValue(libraryQuery);
   const searchableTracks = filterTracks(tracks, deferredQuery);
-  const visibleTracks = searchableTracks.filter((track) => {
-    if (sourceFilter === "all") {
-      return true;
+  const filteredTracks = searchableTracks.filter((track) => {
+    switch (libraryFilter) {
+      case "favorites":
+        return Boolean(track.isFavorite);
+      case "recent":
+        return Boolean(track.lastPlayedAt);
+      case "local":
+      case "youtube":
+        return track.source === libraryFilter;
+      case "all":
+      default:
+        return true;
     }
-
-    return track.source === sourceFilter;
   });
+  const visibleTracks = sortLibraryTracks(filteredTracks, librarySort, sortDirection);
+  const queueTracks = materializeQueue(queueTrackIds, tracks);
+  const queuedTrackIdSet = new Set(queueTrackIds);
   const selectedTrack = tracks.find((track) => track.id === selectedTrackId) ?? null;
   const playbackQueue =
-    selectedTrackId && visibleTracks.some((track) => track.id === selectedTrackId)
-      ? visibleTracks
-      : tracks;
+    queueTracks.length && selectedTrack
+      ? selectedTrack && queueTrackIds.includes(selectedTrack.id)
+        ? queueTracks
+        : [selectedTrack, ...queueTracks]
+      : selectedTrackId && visibleTracks.some((track) => track.id === selectedTrackId)
+        ? visibleTracks
+        : tracks;
   const playbackQueueIds = playbackQueue.map((track) => track.id);
   const selectedQueueIndex = selectedTrackId
     ? playbackQueueIds.indexOf(selectedTrackId)
@@ -227,6 +310,8 @@ function App() {
       : 0;
   const localTracksCount = tracks.filter((track) => track.source === "local").length;
   const youtubeTracksCount = tracks.filter((track) => track.source === "youtube").length;
+  const favoriteTracksCount = tracks.filter((track) => track.isFavorite).length;
+  const recentTracksCount = tracks.filter((track) => track.lastPlayedAt).length;
   const runtimeHint =
     runtimeMode === "desktop" ? t("runtimeDesktopHint") : t("runtimeBrowserHint");
   const controlsSystemVolume = runtimeMode === "desktop";
@@ -629,9 +714,67 @@ function App() {
   }, [tracks, selectedTrackId]);
 
   useEffect(() => {
+    const validTrackIds = new Set(tracks.map((track) => track.id));
+    setQueueTrackIds((current) =>
+      current.filter((trackId, index) => validTrackIds.has(trackId) && current.indexOf(trackId) === index),
+    );
+  }, [tracks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queueTrackIds));
+  }, [queueTrackIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      SORT_STORAGE_KEY,
+      JSON.stringify({ mode: librarySort, direction: sortDirection }),
+    );
+  }, [librarySort, sortDirection]);
+
+  useEffect(() => {
+    if (!selectedTrackId) {
+      return;
+    }
+
+    setQueueTrackIds((current) => removeTrackFromQueue(current, selectedTrackId));
+  }, [selectedTrackId]);
+
+  useEffect(() => {
     setLyricsError(undefined);
     setLyricsNotice(null);
   }, [selectedTrackId]);
+
+  useEffect(() => {
+    if (!trackMenu) {
+      return;
+    }
+
+    const closeMenu = () => setTrackMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+    };
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [trackMenu]);
 
   const autoSearchMissingLyrics = useEffectEvent(async (track: Track) => {
     try {
@@ -741,6 +884,46 @@ function App() {
     void play();
   }, [selectedTrack?.id]);
 
+  const recordPlaybackStart = useEffectEvent(async (track: Track) => {
+    try {
+      const updatedTrack = await recordTrackPlayed(track.id);
+      const playedAt = updatedTrack?.lastPlayedAt ?? new Date().toISOString();
+      setTracks((current) =>
+        current.map((item) =>
+          item.id === track.id
+            ? {
+                ...item,
+                playCount: updatedTrack?.playCount ?? (item.playCount ?? 0) + 1,
+                lastPlayedAt: playedAt,
+                isFavorite: updatedTrack?.isFavorite ?? item.isFavorite,
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      console.warn("Couldn't record recently played track", error);
+    }
+  });
+
+  useEffect(() => {
+    if (!selectedTrack || !playback.isPlaying) {
+      return;
+    }
+
+    if (lastRecordedPlayTrackRef.current === selectedTrack.id) {
+      return;
+    }
+
+    lastRecordedPlayTrackRef.current = selectedTrack.id;
+    void recordPlaybackStart(selectedTrack);
+  }, [playback.isPlaying, selectedTrack?.id]);
+
+  useEffect(() => {
+    if (selectedTrackId !== lastRecordedPlayTrackRef.current) {
+      lastRecordedPlayTrackRef.current = null;
+    }
+  }, [selectedTrackId]);
+
   useEffect(() => {
     setShuffleHistory((current) =>
       current.filter((trackId) => tracks.some((track) => track.id === trackId)),
@@ -777,6 +960,97 @@ function App() {
       }
     },
   );
+
+  const openTrackMenu = useEffectEvent((track: Track, x: number, y: number) => {
+    const menuWidth = 236;
+    const menuHeight = 280;
+    setTrackMenu({
+      trackId: track.id,
+      x: Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12)),
+      y: Math.max(12, Math.min(y, window.innerHeight - menuHeight - 12)),
+    });
+  });
+
+  const handleAddToQueue = useEffectEvent(
+    (track: Track, placement: "next" | "end" = "end") => {
+      setQueueTrackIds((current) => addTrackToQueue(current, track.id, placement));
+      setNotice({
+        tone: "success",
+        text: t(placement === "next" ? "statusQueueNext" : "statusQueueAdded", {
+          title: track.title,
+        }),
+      });
+      setTrackMenu(null);
+    },
+  );
+
+  const handleRemoveFromQueue = useEffectEvent((track: Track) => {
+    setQueueTrackIds((current) => removeTrackFromQueue(current, track.id));
+    setNotice({
+      tone: "neutral",
+      text: t("statusQueueRemoved", { title: track.title }),
+    });
+    setTrackMenu(null);
+  });
+
+  const handleClearQueue = useEffectEvent(() => {
+    setQueueTrackIds([]);
+    setNotice({ tone: "neutral", text: t("statusQueueCleared") });
+  });
+
+  const handleToggleFavorite = useEffectEvent(async (track: Track) => {
+    const nextFavorite = !track.isFavorite;
+    setTracks((current) =>
+      current.map((item) =>
+        item.id === track.id
+          ? {
+              ...item,
+              isFavorite: nextFavorite,
+            }
+          : item,
+      ),
+    );
+    setTrackMenu(null);
+
+    try {
+      const updatedTrack = await updateTrackFavorite(track.id, nextFavorite);
+      if (updatedTrack) {
+        setTracks((current) =>
+          current.map((item) =>
+            item.id === track.id
+              ? {
+                  ...item,
+                  isFavorite: updatedTrack.isFavorite,
+                  playCount: updatedTrack.playCount ?? item.playCount,
+                  lastPlayedAt: updatedTrack.lastPlayedAt ?? item.lastPlayedAt,
+                }
+              : item,
+          ),
+        );
+      }
+      setNotice({
+        tone: "success",
+        text: t(nextFavorite ? "statusFavoriteAdded" : "statusFavoriteRemoved", {
+          title: track.title,
+        }),
+      });
+    } catch (error) {
+      setTracks((current) =>
+        current.map((item) =>
+          item.id === track.id
+            ? {
+                ...item,
+                isFavorite: track.isFavorite,
+              }
+            : item,
+        ),
+      );
+      setNotice({
+        tone: toneFromError(error),
+        text: `${t("statusFavoriteError")}: ${toErrorMessage(error)}`,
+      });
+    }
+  });
 
   const handlePreviousTrack = useEffectEvent(() => {
     if (!selectedTrackId || !playbackQueueIds.length) {
@@ -1069,7 +1343,7 @@ function App() {
 
   function playDownloadedTrack(track: Track, autoplay: boolean): void {
     addDownloadedTrack(track);
-    setSourceFilter("all");
+    setLibraryFilter("all");
 
     if (selectedTrackId === track.id) {
       setActiveContextTab("lyrics");
@@ -1298,6 +1572,7 @@ function App() {
       const deletedIndex = tracks.findIndex((item) => item.id === track.id);
       const nextTracks = tracks.filter((item) => item.id !== track.id);
       setTracks(nextTracks);
+      setQueueTrackIds((current) => removeTrackFromQueue(current, track.id));
       setShuffleHistory((current) => current.filter((trackId) => trackId !== track.id));
 
       if (selectedTrackId === track.id) {
@@ -1329,11 +1604,23 @@ function App() {
     { id: "youtube" as const, label: t("contextYoutubeTab"), icon: Search },
     { id: "downloads" as const, label: t("contextDownloadsTab"), icon: Download },
   ];
-  const sourceFilters = [
+  const libraryFilters = [
     { id: "all" as const, label: t("libraryFilterAll"), count: tracks.length },
+    { id: "favorites" as const, label: t("libraryFilterFavorites"), count: favoriteTracksCount },
+    { id: "recent" as const, label: t("libraryFilterRecent"), count: recentTracksCount },
     { id: "local" as const, label: t("libraryFilterLocal"), count: localTracksCount },
     { id: "youtube" as const, label: t("libraryFilterYouTube"), count: youtubeTracksCount },
   ];
+  const sortOptions = [
+    { id: "added" as const, label: t("librarySortAdded") },
+    { id: "title" as const, label: t("librarySortTitle") },
+    { id: "artist" as const, label: t("librarySortArtist") },
+    { id: "duration" as const, label: t("librarySortDuration") },
+    { id: "lastPlayed" as const, label: t("librarySortLastPlayed") },
+  ];
+  const activeMenuTrack = trackMenu
+    ? tracks.find((track) => track.id === trackMenu.trackId) ?? null
+    : null;
   const dependencyCards = [
     {
       label: t("dependencyYtDlp"),
@@ -1485,26 +1772,26 @@ function App() {
               </div>
 
               <div className="source-filter" role="tablist" aria-label={t("libraryFilterLabel")}>
-                {sourceFilters.map((filter) => (
+                {libraryFilters.map((filter) => (
                   <button
                     key={filter.id}
                     type="button"
                     role="tab"
-                    aria-selected={filter.id === sourceFilter}
+                    aria-selected={filter.id === libraryFilter}
                     className={[
                       "source-filter__button",
-                      filter.id === sourceFilter ? "source-filter__button--active" : "",
+                      filter.id === libraryFilter ? "source-filter__button--active" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    onClick={() => setSourceFilter(filter.id)}
+                    onClick={() => setLibraryFilter(filter.id)}
                     onKeyDown={(event) => {
                       if (!isKeyboardActivation(event.key)) {
                         return;
                       }
 
                       event.preventDefault();
-                      setSourceFilter(filter.id);
+                      setLibraryFilter(filter.id);
                     }}
                   >
                     <span>{filter.label}</span>
@@ -1512,6 +1799,96 @@ function App() {
                   </button>
                 ))}
               </div>
+
+              <div className="library-controls" aria-label={t("librarySortLabel")}>
+                <label className="library-sort">
+                  <span>{t("librarySortLabel")}</span>
+                  <select
+                    value={librarySort}
+                    onChange={(event) =>
+                      setLibrarySort(event.currentTarget.value as LibrarySortMode)
+                    }
+                  >
+                    {sortOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="tiny-button library-sort__direction"
+                  onClick={() =>
+                    setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
+                  }
+                  aria-label={
+                    sortDirection === "asc"
+                      ? t("librarySortDescending")
+                      : t("librarySortAscending")
+                  }
+                  title={
+                    sortDirection === "asc"
+                      ? t("librarySortAscending")
+                      : t("librarySortDescending")
+                  }
+                >
+                  {sortDirection === "asc" ? (
+                    <SortAsc size={15} strokeWidth={2.2} aria-hidden="true" />
+                  ) : (
+                    <SortDesc size={15} strokeWidth={2.2} aria-hidden="true" />
+                  )}
+                  {sortDirection === "asc"
+                    ? t("librarySortAscending")
+                    : t("librarySortDescending")}
+                </button>
+              </div>
+
+              {queueTracks.length ? (
+                <section className="queue-card" aria-label={t("queueTitle")}>
+                  <header className="queue-card__header">
+                    <div>
+                      <span>{t("queueTitle")}</span>
+                      <strong>{t("queueCount", { count: queueTracks.length })}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="tiny-button"
+                      onClick={handleClearQueue}
+                    >
+                      <Eraser size={14} strokeWidth={2.2} aria-hidden="true" />
+                      {t("queueClear")}
+                    </button>
+                  </header>
+                  <ol className="queue-card__list">
+                    {queueTracks.slice(0, 4).map((track, index) => (
+                      <li key={track.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            selectTrack(track.id, {
+                              autoplay: true,
+                              focusLyrics: true,
+                              resetShuffleHistory: true,
+                            });
+                            setIsLibraryOpen(false);
+                          }}
+                        >
+                          <span>{index + 1}</span>
+                          <strong title={track.title}>{track.title}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`${t("trackRemoveFromQueue")}: ${track.title}`}
+                          onClick={() => handleRemoveFromQueue(track)}
+                        >
+                          <X size={13} strokeWidth={2.2} aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
 
               {!tracks.length ? (
                 <div className="empty-state empty-state--rail">
@@ -1534,6 +1911,7 @@ function App() {
                   currentTrackId={selectedTrack?.id ?? null}
                   isPlaying={playback.isPlaying}
                   locale={locale}
+                  queuedTrackIds={queueTrackIds}
                   onSelect={(trackId) => {
                     selectTrack(trackId, {
                       focusLyrics: true,
@@ -1555,6 +1933,10 @@ function App() {
                     });
                     setIsLibraryOpen(false);
                   }}
+                  onToggleFavorite={(track) => void handleToggleFavorite(track)}
+                  onAddToQueue={(track, placement) => handleAddToQueue(track, placement)}
+                  onRemoveFromQueue={(track) => handleRemoveFromQueue(track)}
+                  onOpenMenu={(track, x, y) => openTrackMenu(track, x, y)}
                   onDelete={(track) => void handleDeleteTrack(track)}
                   deletingTrackId={deletingTrackId}
                   t={t}
@@ -1821,6 +2203,87 @@ function App() {
             </footer>
           </aside>
         </main>
+
+        {trackMenu && activeMenuTrack ? (
+          <div
+            className="track-context-menu"
+            role="menu"
+            style={{ left: trackMenu.x, top: trackMenu.y } as CSSProperties}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <div className="track-context-menu__title">
+              <strong title={activeMenuTrack.title}>{activeMenuTrack.title}</strong>
+              <span>{activeMenuTrack.artist}</span>
+            </div>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                selectTrack(activeMenuTrack.id, {
+                  autoplay: true,
+                  focusLyrics: true,
+                  resetShuffleHistory: true,
+                });
+                setTrackMenu(null);
+              }}
+            >
+              <Play size={15} strokeWidth={2.3} fill="currentColor" aria-hidden="true" />
+              {t("trackPlay")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => handleAddToQueue(activeMenuTrack, "next")}
+            >
+              <ListMusic size={15} strokeWidth={2.2} aria-hidden="true" />
+              {t("trackPlayNext")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => handleAddToQueue(activeMenuTrack, "end")}
+            >
+              <ListMusic size={15} strokeWidth={2.2} aria-hidden="true" />
+              {t("trackAddToQueue")}
+            </button>
+            {queuedTrackIdSet.has(activeMenuTrack.id) ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => handleRemoveFromQueue(activeMenuTrack)}
+              >
+                <X size={15} strokeWidth={2.2} aria-hidden="true" />
+                {t("trackRemoveFromQueue")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void handleToggleFavorite(activeMenuTrack)}
+            >
+              <Star
+                size={15}
+                strokeWidth={2.2}
+                fill={activeMenuTrack.isFavorite ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+              {activeMenuTrack.isFavorite ? t("trackUnfavorite") : t("trackFavorite")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="track-context-menu__danger"
+              onClick={() => {
+                setTrackMenu(null);
+                void handleDeleteTrack(activeMenuTrack);
+              }}
+            >
+              <Trash2 size={15} strokeWidth={2.2} aria-hidden="true" />
+              {t("trackDelete")}
+            </button>
+          </div>
+        ) : null}
 
         {notice ? (
           <div className={["notice-toast", `notice-toast--${notice.tone}`].join(" ")}>

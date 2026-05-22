@@ -187,6 +187,9 @@ export function mergeTrackCollections(previous: Track[], incoming: Track[]): Tra
       lyrics: track.lyrics?.length ? track.lyrics : existing.lyrics,
       lyricSource: track.lyricSource ?? existing.lyricSource,
       lyricOffsetMs: track.lyricOffsetMs ?? existing.lyricOffsetMs,
+      isFavorite: track.isFavorite ?? existing.isFavorite,
+      playCount: track.playCount ?? existing.playCount,
+      lastPlayedAt: track.lastPlayedAt ?? existing.lastPlayedAt,
       artworkPath: track.artworkPath ?? existing.artworkPath,
       artworkUrl: track.artworkUrl ?? existing.artworkUrl,
     };

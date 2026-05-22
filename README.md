@@ -6,7 +6,7 @@ The current app identity is:
 
 - Product name: `musicx`
 - Bundle identifier: `com.musicx`
-- Version: `0.1.4`
+- Version: `0.2.0`
 - Primary target: macOS arm64
 - Stack: Tauri 2, React 19, TypeScript, Vite, Rust
 
@@ -16,6 +16,7 @@ The current app identity is:
 - Search YouTube videos and download audio as local MP3 files.
 - Load synced lyrics from local sidecars, embedded metadata, YouTube subtitles, or LRCLIB.
 - Highlight and auto-scroll lyrics while the song plays, with persisted lyric offset controls for fine alignment.
+- Build a real library with favorites, recent plays, persistent queue, sorting, and right-click row actions.
 - Play, pause, scrub, seek, adjust volume, delete tracks, shuffle, and repeat.
 - Control macOS system output volume from the in-app volume slider.
 - Show per-track artwork in the collection when artwork is available.
@@ -46,8 +47,10 @@ The right context rail contains:
 The left library rail contains:
 
 - Search across song title, artist, and album.
-- Source filters: `All`, `Local`, `YouTube`.
-- Song rows with artwork, title, metadata, source, duration, play, and delete actions.
+- Source filters: `All`, `Favorites`, `Recent`, `Local`, `YouTube`.
+- Sort controls for added date, title, artist, duration, and last-played time.
+- Persistent `Up next` queue with play-next, add-to-end, remove, and clear actions.
+- Song rows with artwork, title, metadata, source, duration, favorite, queue, play, context menu, and delete actions.
 - Library statistics for tracks, lyric-ready tracks, and active downloads.
 
 ## Install
@@ -98,7 +101,7 @@ pnpm tauri build
 Observed release artifacts:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.1.4_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.2.0_aarch64.dmg`
 
 The current local bundle is ad-hoc signed and not notarized.
 
@@ -126,7 +129,7 @@ Run only the frontend UI tests:
 pnpm test:ui
 ```
 
-There are Rust unit tests for YouTube URL handling, search parsing, subtitle parsing, lyrics repair, lyric offset persistence, system volume conversion, delete behavior, demo asset creation, and temporary data migration. Vitest UI tests cover lyric offset controls, active lyric alignment, WebVTT parsing, and download retry behavior.
+There are Rust unit tests for YouTube URL handling, search parsing, subtitle parsing, lyrics repair, lyric offset persistence, system volume conversion, delete behavior, favorite/recent metadata persistence, demo asset creation, and temporary data migration. Vitest UI tests cover lyric offset controls, active lyric alignment, WebVTT parsing, download retry behavior, library sorting/queue helpers, and track-row favorite/queue/context-menu actions.
 
 ## Using musicx
 

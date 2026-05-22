@@ -88,6 +88,9 @@ pub fn ensure_demo_track(library_dir: &Path, artwork_dir: &Path) -> Result<Track
         youtube_video_id: None,
         youtube_url: None,
         lyrics: Some(build_demo_lyrics()),
+        is_favorite: false,
+        play_count: 0,
+        last_played_at: None,
         created_at: DEMO_CREATED_AT.to_string(),
         updated_at: DEMO_CREATED_AT.to_string(),
     })

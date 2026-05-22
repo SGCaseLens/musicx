@@ -12,6 +12,7 @@ The app must let users:
 - Search YouTube videos.
 - Download YouTube audio as local MP3 files.
 - Attach and synchronize lyrics from local files, embedded metadata, YouTube subtitles, and remote lyric search.
+- Manage a real local music library with favorites, recent plays, persistent queue, sorting, and right-click row actions.
 - Play a complete local library with polished macOS-style controls.
 - Manage playback, lyrics, downloads, language, and library search from one friendly interface.
 
@@ -28,7 +29,7 @@ Use these exact identifiers:
 | Rust package name | `musicx` |
 | Rust library crate | `musicx_lib` |
 | Tauri bundle identifier | `com.musicx` |
-| Version | `0.1.4` |
+| Version | `0.2.0` |
 | Main window title | `musicx` |
 | Primary target | macOS arm64 desktop |
 
@@ -80,7 +81,7 @@ The app can include a browser-only demo mode for frontend development, but the s
 `src-tauri/tauri.conf.json` must include:
 
 - `productName`: `musicx`
-- `version`: `0.1.4`
+- `version`: `0.2.0`
 - `identifier`: `com.musicx`
 - `beforeDevCommand`: `pnpm dev`
 - `devUrl`: `http://localhost:1420`
@@ -778,6 +779,9 @@ On macOS:
 
 - Use `useDeferredValue` and `startTransition` for library search and large state updates.
 - Do not recompute filtered tracks unnecessarily beyond simple in-memory filtering.
+- Keep queue materialization, sorting, favorites, and recent-play filtering in deterministic in-memory helpers covered by unit tests.
+- Persist queue ids and sort preferences in `localStorage`, and automatically drop stale queue ids when tracks are deleted.
+- Store favorite, play count, and last-played metadata in SQLite with migration-safe default columns and indexes.
 - Keep lyrics inside a scroll container; long lyrics must not stretch the full page.
 - Only scroll lyrics when the active lyric index changes.
 - Use `requestAnimationFrame` for playback progress and audio meter updates.
@@ -803,7 +807,7 @@ On macOS:
 The release build must produce:
 
 - `src-tauri/target/release/bundle/macos/musicx.app`
-- `src-tauri/target/release/bundle/dmg/musicx_0.1.4_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/musicx_0.2.0_aarch64.dmg`
 
 The currently expected release is macOS arm64. Do not claim notarization, universal binaries, app-store distribution, auto-updates, or Windows/Linux packages unless those are added later.
 
@@ -822,13 +826,18 @@ pnpm tauri build
 Manual checks:
 
 - App launches as `musicx`.
-- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.1.4`.
+- `Info.plist` contains `CFBundleDisplayName = musicx`, `CFBundleExecutable = musicx`, `CFBundleIdentifier = com.musicx`, version `0.2.0`.
 - Built-in demo track appears and plays.
 - Import opens a native file picker.
 - Supported local audio imports, copies into library, and appears in the track list.
 - Track delete removes the managed copy but not the original source file.
 - Library search works with English and Chinese IME input.
-- Library filters switch between All, Local, and YouTube.
+- Library filters switch between All, Favorites, Recent, Local, and YouTube.
+- Library sorting works for added date, title, artist, duration, and last-played time in ascending and descending directions.
+- Favorite toggles persist after app refresh/restart.
+- Recent plays update only when playback starts and persist after app refresh/restart.
+- Queue actions support play next, add to queue, remove from queue, clear queue, stale-id cleanup, and persistence after app refresh/restart.
+- Right-clicking a song row opens actions for play, play next, queue, favorite, and delete.
 - Player play/pause works.
 - Progress slider can seek to arbitrary time.
 - Previous and next controls work.
@@ -881,6 +890,7 @@ At minimum, include Rust unit tests for:
 - Repairing stored raw timed-text lyrics.
 - Lyric offset persistence and backend clamping.
 - Delete record success and missing no-op.
+- Favorite and recent-play metadata persistence.
 - Demo track asset generation.
 - macOS volume conversion and parsing.
 - Temporary `com.cantodeck` data migration back to `com.musicx`.
@@ -891,6 +901,8 @@ At minimum, include Vitest UI/unit tests for:
 - Lyric offset button callbacks.
 - WebVTT parsing into separate timed lines.
 - Download error retry action rendering and click handling.
+- Library sorting, queue dedupe, queue materialization, and stale track cleanup.
+- Track row favorite, queue, remove-queue, and context-menu entry points.
 
 ## 31. Known Constraints
 

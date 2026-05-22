@@ -13,8 +13,10 @@ mod youtube;
 use crate::errors::{AppResult, ErrorPayload};
 use crate::library::{
     create_youtube_track, delete_track_record, get_track_by_id, get_track_by_youtube_video_id,
-    import_tracks, list_tracks as list_tracks_impl, open_connection, save_lyrics,
-    update_lyrics_offset as update_lyrics_offset_impl, YoutubeTrackInput,
+    import_tracks, list_tracks as list_tracks_impl, open_connection,
+    record_track_played as record_track_played_impl, save_lyrics,
+    update_lyrics_offset as update_lyrics_offset_impl,
+    update_track_favorite as update_track_favorite_impl, YoutubeTrackInput,
 };
 use crate::lyrics::{build_lyrics_query, guess_language_from_lines, search_remote_lyrics};
 use crate::paths::ensure_app_dirs;
@@ -283,6 +285,24 @@ async fn update_lyrics_offset(
 }
 
 #[tauri::command]
+async fn update_track_favorite(
+    app: AppHandle,
+    track_id: String,
+    is_favorite: bool,
+) -> AppResult<Option<Track>> {
+    let app_paths = ensure_app_dirs(&app).map_err(ErrorPayload::from)?;
+    let connection = open_connection(&app_paths.db).map_err(ErrorPayload::from)?;
+    update_track_favorite_impl(&connection, &track_id, is_favorite).map_err(ErrorPayload::from)
+}
+
+#[tauri::command]
+async fn record_track_played(app: AppHandle, track_id: String) -> AppResult<Option<Track>> {
+    let app_paths = ensure_app_dirs(&app).map_err(ErrorPayload::from)?;
+    let connection = open_connection(&app_paths.db).map_err(ErrorPayload::from)?;
+    record_track_played_impl(&connection, &track_id).map_err(ErrorPayload::from)
+}
+
+#[tauri::command]
 async fn search_youtube_videos(
     app: AppHandle,
     query: String,
@@ -422,6 +442,8 @@ pub fn run() {
             delete_track,
             search_lyrics_for_track,
             update_lyrics_offset,
+            update_track_favorite,
+            record_track_played,
             search_youtube_videos,
             download_youtube_audio
         ]);
