@@ -35,6 +35,8 @@ flowchart LR
   D["Header\nOpen library, Refresh, Import, Language"] --> B
 ```
 
+![musicx macOS interface](docs/images/musicx-v0.1.4-screenshot.png)
+
 The main player shows the selected song, artwork, a turntable-style record, previous/play-next controls, a draggable progress slider, shuffle/repeat controls, macOS volume control, and a music-reactive signal meter.
 
 The right context rail contains:
